@@ -15,7 +15,9 @@
 
 ---
 
-## 🎮 The Game: Duel Arena
+## 🎮 The Games
+
+### Duel Arena
 
 Real-time 1v1 hero brawler. 2-minute matches. Stake CMAS, winner takes the pot.
 
@@ -23,6 +25,18 @@ Real-time 1v1 hero brawler. 2-minute matches. Stake CMAS, winner takes the pot.
 - **Platforms:** iOS, Android, WebGL, PC
 - **Match Duration:** 2 minutes
 - **Economy:** Staked CMAS matches + Tournament brackets
+
+### Orbit Rush 🪐
+
+Mass-market one-touch arcade — the front door of the ecosystem. One shared
+deterministic daily track for the whole world, 60-second runs, streaks, ghosts,
+and asynchronous staked duels (both players play the same seed, best score wins).
+
+- **Genre:** One-touch skill arcade / daily challenge
+- **Platforms:** Web (instant play), iOS, Android, Telegram Mini App
+- **Run Duration:** 60 seconds
+- **Design doc:** [`ORBIT_RUSH_GDD.md`](ORBIT_RUSH_GDD.md)
+- **Playable prototype:** open [`PROTOTYPE/orbit-rush.html`](PROTOTYPE/orbit-rush.html) in any browser (tap or Space)
 
 ---
 

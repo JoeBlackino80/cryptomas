@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Orbit Rush — CryptoMas prototype</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #06060f; overflow: hidden;
+               font-family: "Segoe UI", system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { touch-action: none; display: block; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+         padding: 12px 16px; pointer-events: none; color: #eaf6ff; }
+  .stat { font-size: 22px; font-weight: 700; text-shadow: 0 0 12px #16d3ff88; }
+  .sub  { font-size: 12px; font-weight: 400; opacity: .7; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+             justify-content: center; gap: 10px; color: #eaf6ff; text-align: center;
+             background: rgba(4,4,14,.55); backdrop-filter: blur(2px); }
+  #overlay.hidden { display: none; }
+  #overlay h1 { margin: 0; font-size: 42px; letter-spacing: 4px; color: #16d3ff; text-shadow: 0 0 24px #16d3ff; }
+  #overlay .big { font-size: 30px; font-weight: 800; color: #ffd24a; text-shadow: 0 0 16px #ffd24a88; }
+  #overlay .hint { font-size: 15px; opacity: .85; max-width: 300px; line-height: 1.5; }
+  #overlay .row { display: flex; gap: 10px; }
+  button { pointer-events: auto; background: #101a33; color: #eaf6ff; border: 1px solid #16d3ff66;
+           border-radius: 10px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button:active { background: #16d3ff33; }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #101a33;
+           color: #eaf6ff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0;
+           transition: opacity .3s; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<div id="hud">
+  <div><div class="stat" id="score">0</div><div class="sub" id="combo"></div></div>
+  <div style="text-align:right"><div class="stat" id="timer">60</div><div class="sub" id="mode">DAILY</div></div>
+</div>
+<div id="overlay">
+  <h1>ORBIT RUSH</h1>
+  <div class="big" id="ovScore"></div>
+  <div class="hint" id="ovHint">You orbit automatically.<br>TAP to release. Latch the next ring.<br>Chain hops, thread the sparks ⚡</div>
+  <div class="sub" id="ovMeta"></div>
+  <div class="row">
+    <button id="btnMode">PRACTICE MODE</button>
+    <button id="btnShare" style="display:none">SHARE 📋</button>
+  </div>
+  <div class="hint" style="font-size:13px;opacity:.6">tap anywhere / press SPACE to play</div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ============ Orbit Rush — core-loop prototype ============
+   Deterministic: fixed 120 Hz simulation, seeded generation.
+   Daily seed = hash(UTC date) → same track for the whole world. */
+
+const TICK = 1 / 120;
+const RUN_SECONDS = 60;
+const VIEW_W = 400;                       // logical width; height derives from screen
+const LATCH_PAD = 16;                     // capture margin around a ring
+const FLIGHT_TIMEOUT = 1.6;               // seconds of free flight before falling
+const ORB_R = 8, SPARK_R = 22, SPIKE_R = 11;
+
+/* ---------- seeded PRNG (mulberry32) ---------- */
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const utcDay = () => new Date().toISOString().slice(0, 10);
+const dailyNumber = () => Math.floor((Date.now() / 86400000) - 20000); // small human-friendly #
+
+/* ---------- track generation ---------- */
+function makeTrack(seed, count) {
+  const rnd = mulberry32(seed);
+  const anchors = [], sparks = [];
+  let x = 0, y = 0;
+  for (let i = 0; i < count; i++) {
+    const r = 38 + rnd() * 30;
+    const a = { x, y, r, w: (1.9 + rnd() * 1.1) * (rnd() < 0.5 ? 1 : -1), spike: -1 };
+    if (i > 3 && rnd() < Math.min(0.12 + i * 0.004, 0.4)) a.spike = rnd() * Math.PI * 2;
+    anchors.push(a);
+    const py = y, px = x;
+    y -= 130 + rnd() * 90;
+    x = Math.max(-140, Math.min(140, x + (rnd() * 2 - 1) * 150));
+    if (i < count - 1) {
+      const n = 2 + Math.floor(rnd() * 3);
+      for (let k = 0; k < n; k++) {
+        const t = 0.3 + 0.5 * (k + rnd() * 0.6) / n;
+        sparks.push({ x: px + (x - px) * t + (rnd() * 2 - 1) * 26,
+                      y: py + (y - py) * t + (rnd() * 2 - 1) * 18, hit: false });
+      }
+    }
+  }
+  return { anchors, sparks };
+}
+
+/* ---------- persistent stats ---------- */
+const store = {
+  get best()   { return +(localStorage.getItem("or_best_" + utcDay()) || 0); },
+  set best(v)  { localStorage.setItem("or_best_" + utcDay(), v); },
+  bump() {                                   // daily streak: playing counts
+    const today = utcDay(), last = localStorage.getItem("or_last");
+    if (last === today) return;
+    const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const s = last === y ? +(localStorage.getItem("or_streak") || 0) + 1 : 1;
+    localStorage.setItem("or_streak", s);
+    localStorage.setItem("or_last", today);
+  },
+  get streak() { return +(localStorage.getItem("or_streak") || 0); }
+};
+
+/* ---------- game state ---------- */
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let scale = 1, viewH = 700;
+function resize() {
+  const w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+  scale = w / VIEW_W; viewH = h / scale;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.width = w + "px"; cv.style.height = h + "px";
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+let mode = "daily";                          // "daily" | "practice"
+let G = null;                                // current game
+function newGame() {
+  const seed = mode === "daily" ? hashStr("orbit-rush-" + utcDay())
+                                : (Math.random() * 2 ** 32) >>> 0;
+  const track = makeTrack(seed, 160);
+  G = {
+    track, state: "orbit", anchor: 0, angle: Math.PI / 2, t: 0,
+    x: 0, y: 0, vx: 0, vy: 0, flight: 0,
+    score: 0, combo: 1, sparksHit: 0, hops: 0, camY: 0, shake: 0, alive: true,
+    burst: []                                // particle bursts (visual only)
+  };
+  syncOrb();
+}
+function syncOrb() {
+  const a = G.track.anchors[G.anchor];
+  G.x = a.x + Math.cos(G.angle) * a.r;
+  G.y = a.y + Math.sin(G.angle) * a.r;
+}
+
+/* ---------- simulation (fixed timestep, deterministic) ---------- */
+function release() {
+  if (G.state !== "orbit") return;
+  const a = G.track.anchors[G.anchor];
+  const speed = Math.max(Math.abs(a.w) * a.r, 150) * 1.45;
+  const dir = Math.sign(a.w);
+  G.vx = -Math.sin(G.angle) * dir * speed;
+  G.vy =  Math.cos(G.angle) * dir * speed;
+  G.state = "fly"; G.flight = 0;
+}
+function die() {
+  if (!G.alive) return;
+  G.alive = false; G.shake = 10;
+  finishRun();
+}
+function step() {
+  if (!G.alive) return;
+  G.t += TICK;
+  if (G.t >= RUN_SECONDS) { G.alive = false; finishRun(); return; }
+
+  const A = G.track.anchors;
+  if (G.state === "orbit") {
+    G.angle += A[G.anchor].w * TICK;
+    syncOrb();
+  } else {
+    G.flight += TICK;
+    if (G.flight > FLIGHT_TIMEOUT) return die();
+    G.x += G.vx * TICK; G.y += G.vy * TICK;
+    if (G.x < -VIEW_W / 2 - 40 || G.x > VIEW_W / 2 + 40 || G.y > G.camY + viewH * 0.75) return die();
+    for (let i = Math.max(0, G.anchor - 1); i < Math.min(A.length, G.anchor + 6); i++) {
+      if (i === G.anchor && G.flight < 0.25) continue;      // don't re-latch instantly
+      const a = A[i], dx = G.x - a.x, dy = G.y - a.y, d = Math.hypot(dx, dy);
+      if (Math.abs(d - a.r) < LATCH_PAD) {                  // latch!
+        const cross = dx * G.vy - dy * G.vx;                // keep travel direction
+        a.w = Math.abs(a.w) * (cross >= 0 ? 1 : -1);
+        if (i > G.anchor) { G.hops++; G.combo = Math.min(G.combo + 1, 20); G.score += 10 * G.combo; }
+        G.anchor = i; G.angle = Math.atan2(dy, dx); G.state = "orbit";
+        G.shake = 4; puff(G.x, G.y, "#16d3ff");
+        syncOrb();
+        break;
+      }
+    }
+  }
+  // sparks
+  for (const s of G.track.sparks) {
+    if (!s.hit && Math.hypot(G.x - s.x, G.y - s.y) < SPARK_R) {
+      s.hit = true; G.sparksHit++; G.score += 5 * G.combo; puff(s.x, s.y, "#ffd24a");
+    }
+  }
+  // spike satellites (counter-rotate their anchor)
+  for (let i = Math.max(0, G.anchor - 1); i < Math.min(A.length, G.anchor + 6); i++) {
+    const a = A[i];
+    if (a.spike < 0) continue;
+    a.spike -= a.w * 1.15 * TICK;
+    const sx = a.x + Math.cos(a.spike) * a.r, sy = a.y + Math.sin(a.spike) * a.r;
+    if (Math.hypot(G.x - sx, G.y - sy) < SPIKE_R + ORB_R) return die();
+  }
+  // camera follows highest point reached
+  G.camY = Math.min(G.camY, G.y);
+}
+
+/* ---------- particles (render-only, not part of sim) ---------- */
+function puff(x, y, col) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 120;
+    G.burst.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5, col });
+  }
+}
+
+/* ---------- render ---------- */
+function draw() {
+  const camX = VIEW_W / 2, camYpix = viewH * 0.62;
+  const shx = (Math.random() - .5) * G.shake, shy = (Math.random() - .5) * G.shake;
+  G.shake *= 0.85;
+
+  const grd = ctx.createLinearGradient(0, 0, 0, viewH);
+  grd.addColorStop(0, "#0b0c22"); grd.addColorStop(1, "#06060f");
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, VIEW_W, viewH);
+
+  ctx.save();
+  ctx.translate(camX + shx, camYpix - G.camY + shy);
+
+  const A = G.track.anchors, top = G.camY - viewH, bot = G.camY + viewH;
+  for (const s of G.track.sparks) {
+    if (s.hit || s.y < top || s.y > bot) continue;
+    ctx.fillStyle = "#ffd24a"; ctx.shadowColor = "#ffd24a"; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(s.x, s.y, 4.5, 0, 7); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  for (const a of A) {
+    if (a.y < top || a.y > bot) continue;
+    ctx.strokeStyle = "#2b3f77"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, 7); ctx.stroke();
+    ctx.fillStyle = "#2b3f77";
+    ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, 7); ctx.fill();
+    if (a.spike >= 0) {
+      const sx = a.x + Math.cos(a.spike) * a.r, sy = a.y + Math.sin(a.spike) * a.r;
+      ctx.fillStyle = "#ff3d6e"; ctx.shadowColor = "#ff3d6e"; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const an = k * Math.PI / 4, rr = k % 2 ? SPIKE_R : SPIKE_R * 0.45;
+        ctx[k ? "lineTo" : "moveTo"](sx + Math.cos(an) * rr, sy + Math.sin(an) * rr);
+      }
+      ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+    }
+  }
+  for (let i = G.burst.length - 1; i >= 0; i--) {
+    const p = G.burst[i];
+    p.life -= 1 / 60; p.x += p.vx / 60; p.y += p.vy / 60;
+    if (p.life <= 0) { G.burst.splice(i, 1); continue; }
+    ctx.globalAlpha = p.life * 2; ctx.fillStyle = p.col;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+  // orb
+  ctx.fillStyle = G.alive ? "#16d3ff" : "#ff3d6e";
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 20;
+  ctx.beginPath(); ctx.arc(G.x, G.y, ORB_R, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+/* ---------- UI / flow ---------- */
+const $ = id => document.getElementById(id);
+let phase = "menu";                           // "menu" | "play" | "over"
+
+function startRun() {
+  newGame(); store.bump();
+  phase = "play";
+  $("overlay").classList.add("hidden");
+  $("mode").textContent = mode.toUpperCase();
+}
+function finishRun() {
+  phase = "over";
+  const s = G.score;
+  let recordTxt = "";
+  if (mode === "daily") {
+    if (s > store.best) { store.best = s; recordTxt = "🏆 NEW DAILY BEST"; }
+    $("ovMeta").textContent = `Daily #${dailyNumber()} · best today ${store.best} · streak 🔥${store.streak}`;
+  } else {
+    $("ovMeta").textContent = "practice run — no records";
+  }
+  $("ovScore").textContent = `${s} ⚡ ${recordTxt}`;
+  $("ovHint").innerHTML = `hops ${G.hops} · sparks ${G.sparksHit} · max combo ×${G.combo}`;
+  $("btnShare").style.display = mode === "daily" ? "" : "none";
+  setTimeout(() => $("overlay").classList.remove("hidden"), 350);
+}
+function tap() {
+  if (phase === "play") release();
+  else startRun();                            // menu & game-over: instant (re)start
+}
+addEventListener("pointerdown", e => { if (e.target.tagName !== "BUTTON") tap(); });
+addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); tap(); } });
+
+$("btnMode").addEventListener("click", () => {
+  mode = mode === "daily" ? "practice" : "daily";
+  $("btnMode").textContent = mode === "daily" ? "PRACTICE MODE" : "DAILY MODE";
+  $("mode").textContent = mode.toUpperCase();
+});
+$("btnShare").addEventListener("click", () => {
+  const card = `🪐 Orbit Rush #${dailyNumber()}\n⚡ ${store.best} · 🔥 streak ${store.streak}\nSame track, whole world. Beat me.`;
+  (navigator.clipboard ? navigator.clipboard.writeText(card) : Promise.reject())
+    .then(() => showToast("copied — paste anywhere"))
+    .catch(() => showToast(card));
+});
+let toastT;
+function showToast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toastT); toastT = setTimeout(() => t.style.opacity = 0, 2200);
+}
+
+/* ---------- main loop: fixed-step sim, rAF render ---------- */
+let last = performance.now(), acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  acc += Math.min((now - last) / 1000, 0.1); last = now;
+  if (phase === "play") {
+    while (acc >= TICK) { step(); acc -= TICK; }
+  } else acc = 0;
+  if (G) {
+    draw();
+    $("score").textContent = G.score;
+    $("combo").textContent = G.combo > 1 ? "combo ×" + G.combo : "";
+    $("timer").textContent = Math.max(0, Math.ceil(RUN_SECONDS - G.t));
+  }
+  }
+newGame();                                    // pre-render the track behind the menu
+$("ovMeta").textContent = `Daily #${dailyNumber()} · best today ${store.best} · streak 🔥${store.streak}`;
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
