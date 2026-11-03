@@ -36,7 +36,10 @@ and asynchronous staked duels (both players play the same seed, best score wins)
 - **Platforms:** Web (instant play), iOS, Android, Telegram Mini App
 - **Run Duration:** 60 seconds
 - **Design doc:** [`ORBIT_RUSH_GDD.md`](ORBIT_RUSH_GDD.md)
-- **Playable prototype:** open [`PROTOTYPE/orbit-rush.html`](PROTOTYPE/orbit-rush.html) in any browser (tap or Space)
+- **Playable prototype:** `npm install && npm run orbit` → http://localhost:4100
+  (server-verified runs + global daily leaderboard), or open
+  [`PROTOTYPE/orbit-rush.html`](PROTOTYPE/orbit-rush.html) directly for offline play
+- **Tests:** `npm test` (determinism, run verification, leaderboard)
 
 ---
 

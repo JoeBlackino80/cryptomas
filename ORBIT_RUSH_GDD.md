@@ -211,10 +211,19 @@ deflation target in `TOKENOMICS.md` when combined with Duel Arena volume.
 - **Server:** verification (re-sim of submitted logs), leaderboards, leagues,
   duel escrow via existing custodial wallet system (`server.js`).
 
-A playable single-file prototype of the core mechanic lives at
-**`PROTOTYPE/orbit-rush.html`** — open it in any browser (mobile or desktop),
-tap or press Space. It already implements the daily seed, deterministic
-generation, combo scoring, streaks, and the share card.
+A playable prototype of the full verified loop lives in **`PROTOTYPE/`**:
+
+- `sim.js` — the deterministic simulation core, single source of truth shared
+  by the browser client and the server verifier.
+- `orbit-rush.html` — the game client: records the run as a tap log, submits
+  it, shows the global daily leaderboard. Also playable offline from `file://`.
+- `orbit-server.js` — verification server + daily leaderboard. Re-simulates
+  every submitted tap log; only the server-computed score enters the
+  leaderboard, so an inflated claim is structurally impossible.
+- `orbit-server.test.js` — determinism, verification, rejection and
+  leaderboard-ordering tests (`npm test`).
+
+Run it: `npm install && npm run orbit` → http://localhost:4100
 
 ---
 
@@ -232,8 +241,8 @@ generation, combo scoring, streaks, and the share card.
 
 | Phase | Timeline | Deliverable |
 |-------|----------|-------------|
-| Prototype | now | Single-file playable core loop (done — `PROTOTYPE/orbit-rush.html`) |
-| Alpha | Month 1 | Server verification, accounts, ghosts, daily leaderboard |
+| Prototype | now | Playable core loop (done — `PROTOTYPE/orbit-rush.html`) |
+| Alpha | Month 1 | Server verification + daily leaderboard (done — `PROTOTYPE/orbit-server.js`); accounts, ghosts |
 | Beta | Month 2 | Leagues, share cards, Telegram Mini App, cosmetics |
 | Launch | Month 3 | Async CMAS duels + Gauntlet (18+, KYC), season 1 |
 | Growth | Month 4+ | Ghost bounties, creator tracks, cross-promo into Duel Arena |
