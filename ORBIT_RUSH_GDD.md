@@ -126,7 +126,79 @@ Engagement must come from mastery, ritual, and social play — not from loss-cha
 
 ---
 
-## 7. Technical Design
+## 7. Operator Economics
+
+How the platform (and the CMAS treasury) earns from Orbit Rush. All figures in
+CMAS — fiat value depends on token price. Fee splits follow `TOKENOMICS.md`.
+
+### 7.1 Direct revenue streams
+
+| Stream | Fee | Treasury | Burn |
+|--------|-----|----------|------|
+| Async Duel | 15% of pot | 10% | 5% |
+| Gauntlet (daily 100-player bracket) | 10% of entries | 5% | 5% |
+| Ghost Bounty | 10% of bounty | 5% | 5% |
+| Cosmetics (trails, orb skins) | 100% of price | 50% | 50% |
+
+### 7.2 Scenario model
+
+Model: `staked volume/day = payers × duels/day × stake`. Each duel pots two
+stakes (fee is charged per pot, so volume is counted per player-stake, not
+double-counted per duel). Duel fee 15% → treasury 10%, burn 5%.
+
+| Assumption | Pessimistic | Realistic | Optimistic |
+|------------|------------:|----------:|-----------:|
+| Daily active users (free) | 5,000 | 50,000 | 500,000 |
+| Conversion to staked play | 1% | 3% | 4% |
+| Staked players | 50 | 1,500 | 20,000 |
+| Duels per payer per day | 2 | 3 | 4 |
+| Avg stake per player | 25 CMAS | 50 CMAS | 50 CMAS |
+| **Staked volume / day** | **2,500** | **225,000** | **4,000,000** |
+| Platform fee / day (15%) | 375 | 33,750 | 600,000 |
+| → Treasury / day | 250 | 22,500 | 400,000 |
+| → Burn / day | 125 | 11,250 | 200,000 |
+| **Treasury / month** | **~7,500** | **~675,000** | **~12,000,000** |
+| Burn / year (% of 1B supply) | ~0.005% | ~0.4% | ~7.3% |
+
+Gauntlet, Ghost Bounties and cosmetics are additive on top of duels; a
+conservative planning assumption is +20–30% over the duel figures. The
+optimistic burn rate (~7%/yr) is consistent with the 30–40%/36-month
+deflation target in `TOKENOMICS.md` when combined with Duel Arena volume.
+
+### 7.3 Indirect value (usually the bigger lever)
+
+1. **Token demand.** Competing for stakes requires buying CMAS. The free game
+   is the acquisition funnel; without it, demand would have to be bought with
+   ad spend.
+2. **Deflation.** Every duel burns 5% of the fee, cosmetics burn 50%. Rising
+   play volume shrinks circulating supply, which benefits all long-term
+   holders — including the Team (15%) and Treasury (5%) allocations.
+3. **Zero-cost viral acquisition.** The share card is marketing performed by
+   players; saved user-acquisition cost is de-facto profit.
+4. **Cross-sell.** Top Orbit Rush players graduate into Duel Arena's higher
+   per-player fee modes (High Stakes, Whale Room, tournaments).
+
+### 7.4 Risks & honest caveats
+
+- **Revenue is denominated in CMAS.** Fiat value of treasury income rises and
+  falls with the token. Sustained value requires demand driven by actual play,
+  not speculation; treasury sell-pressure must be gradual and partly recycled
+  into rewards, or it undermines its own asset.
+- **Conversion is the sensitive variable.** 1–5% free-to-paid is the industry
+  norm; the realistic scenario assumes the upper-middle of that range and only
+  works at tens of thousands of DAU. Everything in the design (zero-barrier
+  entry, share loop) exists to make DAU the solved problem.
+- **Regulatory.** Staked head-to-head play may be treated as wagering in some
+  jurisdictions — see `compliance.md` (18+, KYC, geoblocks, gaming counsel).
+  Fixed-entry Gauntlets and cosmetics are the regulatorily safer streams,
+  which is why the model leans on them growing over time.
+- Scenario figures are planning models, not forecasts or promises of profit —
+  keep them out of marketing materials (`compliance.md`: no profit-sharing
+  promises).
+
+---
+
+## 8. Technical Design
 
 - **Deterministic fixed-timestep simulation** (120 Hz logic, interpolated
   render). Same seed + same input log = same result on every device. This is
@@ -146,7 +218,7 @@ generation, combo scoring, streaks, and the share card.
 
 ---
 
-## 8. Art & Feel
+## 9. Art & Feel
 
 - Neon-on-dark, matching the CryptoMas cyber-fantasy identity.
 - **Juice budget is a feature:** screen-shake on latch, spark burst on collect,
@@ -156,7 +228,7 @@ generation, combo scoring, streaks, and the share card.
 
 ---
 
-## 9. Roadmap
+## 10. Roadmap
 
 | Phase | Timeline | Deliverable |
 |-------|----------|-------------|
