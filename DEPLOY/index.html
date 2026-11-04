@@ -41,7 +41,7 @@
 <div id="overlay">
   <h1>ORBIT RUSH</h1>
   <div class="big" id="ovScore"></div>
-  <div class="hint" id="ovHint">You orbit automatically.<br>TAP to release. Latch the next ring.<br>Chain hops, thread the sparks ⚡</div>
+  <div class="hint" id="ovHint">You orbit automatically.<br>TAP to release. Latch the next ring.<br>Green rings are gates — die and you<br>respawn there, not at the start. 60s, go ⚡</div>
   <div class="sub" id="ovMeta"></div>
   <div id="board"></div>
   <div class="row">
@@ -131,6 +131,8 @@ function handleEvents() {
     if (ev.t === "latch")      { shake = 4;  puff(G.x, G.y, "#16d3ff"); }
     else if (ev.t === "spark") { puff(ev.x, ev.y, "#ffd24a"); }
     else if (ev.t === "die")   { shake = 10; }
+    else if (ev.t === "checkpoint") { shake = 6; puff(G.x, G.y, "#5dff9e"); showToast("✅ GATE " + (G.checkpoint / Sim.CHECKPOINT_EVERY) + " — respawn secured"); }
+    else if (ev.t === "respawn")    { puff(G.x, G.y, "#5dff9e"); }
   }
 }
 
@@ -156,9 +158,16 @@ function draw() {
   ctx.shadowBlur = 0;
   for (const a of A) {
     if (a.y < top || a.y > bot) continue;
-    ctx.strokeStyle = "#2b3f77"; ctx.lineWidth = 2.5;
+    const gate = !!a.cp;
+    ctx.strokeStyle = gate ? "#5dff9e" : "#2b3f77"; ctx.lineWidth = gate ? 3.5 : 2.5;
+    if (gate) { ctx.shadowColor = "#5dff9e"; ctx.shadowBlur = 10; }
     ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, 7); ctx.stroke();
-    ctx.fillStyle = "#2b3f77";
+    if (gate) {                                    // double ring marks a gate
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(a.x, a.y, a.r - 6, 0, 7); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = gate ? "#5dff9e" : "#2b3f77";
     ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, 7); ctx.fill();
     if (a.spike >= 0) {
       const sx = a.x + Math.cos(a.spike) * a.r, sy = a.y + Math.sin(a.spike) * a.r;
@@ -241,7 +250,7 @@ function finishRun() {
     renderBoard(null, null);
   }
   $("ovScore").textContent = `${s} ⚡ ${recordTxt}`;
-  $("ovHint").innerHTML = `hops ${G.hops} · sparks ${G.sparksHit} · max combo ×${G.combo}`;
+  $("ovHint").innerHTML = `hops ${G.hops} · sparks ${G.sparksHit} · gates ${Math.floor(G.checkpoint / Sim.CHECKPOINT_EVERY)} · deaths ${G.deaths}`;
   $("btnShare").style.display = mode === "daily" ? "" : "none";
   setTimeout(() => $("overlay").classList.remove("hidden"), 350);
 }

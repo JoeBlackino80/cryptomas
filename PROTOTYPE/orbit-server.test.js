@@ -50,6 +50,28 @@ test("simulation is deterministic for the same (seed, taps)", () => {
   assert.ok(a.score > 0, "a chained run scores points");
 });
 
+test("death never ends a run — every run lasts the full 60s (checkpoint rule)", () => {
+  // A blind early release usually dies; whatever happens, the run must end by
+  // the timer, having respawned at a gate rather than terminating.
+  const g = Sim.simulate(SEED, [1, 500, 1200, 2500]);
+  assert.equal(g.endReason, "time");
+  assert.equal(g.tick, Sim.MAX_TICKS);
+});
+
+test("reaching a gate sets the respawn checkpoint and pays the bonus", () => {
+  const taps = findTaps(SEED, Sim.CHECKPOINT_EVERY + 1);   // climb past ring 5
+  const g = Sim.simulate(SEED, taps);
+  assert.ok(g.maxAnchor >= Sim.CHECKPOINT_EVERY, "bot climbed past the first gate");
+  assert.ok(g.checkpoint >= Sim.CHECKPOINT_EVERY, "gate recorded as checkpoint");
+});
+
+test("gates never carry spikes (respawn must be safe)", () => {
+  const track = Sim.makeTrack(12345);
+  for (let i = 0; i < track.anchors.length; i += Sim.CHECKPOINT_EVERY) {
+    assert.equal(track.anchors[i].spike, -1, `anchor ${i}`);
+  }
+});
+
 test("different taps give a different run (log actually drives the sim)", () => {
   const taps = findTaps(SEED, 2);
   const a = Sim.simulate(SEED, taps);

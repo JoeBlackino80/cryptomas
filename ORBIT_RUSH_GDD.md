@@ -55,8 +55,17 @@ That's the entire control scheme. Mastery is *when* you release:
   points × combo. A perfect release threads a line of sparks.
 - **Hazards:** counter-rotating spike satellites on some anchors, and dead
   anchors that expire after one orbit. Reading them ahead is the skill.
-- **The track climbs.** Score = altitude + sparks × combo. 60-second timer.
-  Die early or ride the full minute — the run is never longer than a coffee sip.
+- **Gates (checkpoints):** every 5th ring is a gate (visually distinct, never
+  hazardous). Dying does NOT end the run — after a 1.25 s pause you respawn at
+  the last gate and the 60 s timer keeps running. The cost of a death is lost
+  time, a combo reset, and the climb back. Casual players always get their
+  full minute and keep their progress; they never start from zero.
+- **Anti-farm rule:** points, combo growth and gate bonuses are awarded only
+  for *new* territory (rings beyond the highest one reached). Re-climbing
+  after a death scores nothing, so deliberate deaths can never inflate score —
+  the leaderboard stays a pure skill measure.
+- **The track climbs.** Score = new rings × combo + sparks × combo + gate
+  bonuses. Every run lasts exactly 60 seconds — never longer than a coffee sip.
 
 ---
 

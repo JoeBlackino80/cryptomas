@@ -30,6 +30,9 @@
   const ORB_R = 8, SPARK_R = 22, SPIKE_R = 11;
   const TRACK_ANCHORS = 160;
   const COMBO_CAP = 20;
+  const CHECKPOINT_EVERY = 5;            // every 5th ring is a gate (checkpoint)
+  const CP_BONUS = 50;                   // one-time bonus for reaching a new gate
+  const RESPAWN_TICKS = 150;             // 1.25 s pause after death, then back to the gate
 
   /* ---------- seeded PRNG ---------- */
   function hashStr(s) {
@@ -60,8 +63,10 @@
     let x = 0, y = 0;
     for (let i = 0; i < count; i++) {
       const r = 38 + rnd() * 30;
-      const a = { x, y, r, w: (1.9 + rnd() * 1.1) * (rnd() < 0.5 ? 1 : -1), spike: -1 };
-      if (i > 3 && rnd() < Math.min(0.12 + i * 0.004, 0.4)) a.spike = rnd() * Math.PI * 2;
+      const cp = i > 0 && i % CHECKPOINT_EVERY === 0;
+      const a = { x, y, r, w: (1.9 + rnd() * 1.1) * (rnd() < 0.5 ? 1 : -1), spike: -1, cp };
+      // gates never carry spikes — respawning onto one must be safe
+      if (i > 3 && !cp && rnd() < Math.min(0.12 + i * 0.004, 0.4)) a.spike = rnd() * Math.PI * 2;
       anchors.push(a);
       segFirst.push(sparks.length);
       const py = y, px = x;
@@ -87,6 +92,7 @@
       state: "orbit", anchor: 0, angle: Math.PI / 2,
       x: 0, y: 0, vx: 0, vy: 0, flight: 0,
       score: 0, combo: 1, hops: 0, sparksHit: 0,
+      maxAnchor: 0, checkpoint: 0, deaths: 0, respawn: 0,
       camY: 0, alive: true, done: false, endReason: null,
       events: []            // drained by the client each step, for juice only
     };
@@ -107,10 +113,21 @@
     G.vy =  Math.cos(G.angle) * dir * speed;
     G.state = "fly"; G.flight = 0;
   }
+  /* Death no longer ends the run: the orb respawns at the last gate after a
+   * short pause. The cost of dying is time, a combo reset, and the climb back
+   * (which scores nothing — see maxAnchor below). Only the timer ends a run. */
   function kill(G, reason) {
-    G.alive = false; G.done = true; G.endReason = reason;
+    G.alive = false; G.deaths++; G.combo = 1;
+    G.state = "dead"; G.respawn = RESPAWN_TICKS; G.lastDeath = reason;
     G.events.push({ t: "die" });
     return G;
+  }
+  function respawnAtGate(G) {
+    const a = G.track.anchors[G.checkpoint];
+    G.anchor = G.checkpoint; G.angle = Math.PI / 2;
+    G.state = "orbit"; G.alive = true; G.camY = a.y;
+    syncOrb(G);
+    G.events.push({ t: "respawn" });
   }
 
   /* ---------- one simulation tick; tap = input this tick ---------- */
@@ -120,6 +137,12 @@
     if (tap) release(G);
     G.tick++;
     if (G.tick >= MAX_TICKS) { G.done = true; G.endReason = "time"; return G; }
+
+    if (G.state === "dead") {              // respawn countdown — timer keeps running
+      G.respawn--;
+      if (G.respawn <= 0) respawnAtGate(G);
+      return G;
+    }
 
     const A = G.track.anchors;
     const lo = Math.max(0, G.anchor - 1), hi = Math.min(A.length, G.anchor + 6);
@@ -140,9 +163,14 @@
         if (Math.abs(d - a.r) < LATCH_PAD) {               // latch!
           const cross = dx * G.vy - dy * G.vx;             // keep travel direction
           a.w = Math.abs(a.w) * (cross >= 0 ? 1 : -1);
-          if (i > G.anchor) {
-            G.hops++; G.combo = Math.min(G.combo + 1, COMBO_CAP);
-            G.score += 10 * G.combo;
+          if (i > G.maxAnchor) {                           // NEW territory only:
+            G.maxAnchor = i;                               // re-climbing after a death
+            G.hops++; G.combo = Math.min(G.combo + 1, COMBO_CAP);  // scores nothing,
+            G.score += 10 * G.combo;                       // so dying can't be farmed
+            if (a.cp && i > G.checkpoint) {
+              G.checkpoint = i; G.score += CP_BONUS;
+              G.events.push({ t: "checkpoint" });
+            }
           }
           G.anchor = i; G.angle = Math.atan2(dy, dx); G.state = "orbit";
           syncOrb(G);
@@ -191,6 +219,7 @@
 
   const OrbitSim = {
     TICK, RUN_SECONDS, MAX_TICKS, VIEW_W, ORB_R, SPARK_R, SPIKE_R, FALL_DIST,
+    CHECKPOINT_EVERY, RESPAWN_TICKS,
     hashStr, mulberry32, utcDay, dailyNumber, dailySeed,
     makeTrack, createState, step, simulate
   };
