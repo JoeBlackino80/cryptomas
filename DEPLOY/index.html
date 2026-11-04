@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Orbit Rush — CryptoMas prototype</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #06060f; overflow: hidden;
+               font-family: "Segoe UI", system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { touch-action: none; display: block; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+         padding: 12px 16px; pointer-events: none; color: #eaf6ff; }
+  .stat { font-size: 22px; font-weight: 700; text-shadow: 0 0 12px #16d3ff88; }
+  .sub  { font-size: 12px; font-weight: 400; opacity: .7; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+             justify-content: center; gap: 10px; color: #eaf6ff; text-align: center;
+             background: rgba(4,4,14,.55); backdrop-filter: blur(2px); }
+  #overlay.hidden { display: none; }
+  #overlay h1 { margin: 0; font-size: 42px; letter-spacing: 4px; color: #16d3ff; text-shadow: 0 0 24px #16d3ff; }
+  #overlay .big { font-size: 30px; font-weight: 800; color: #ffd24a; text-shadow: 0 0 16px #ffd24a88; }
+  #overlay .hint { font-size: 15px; opacity: .85; max-width: 300px; line-height: 1.5; }
+  #overlay .row { display: flex; gap: 10px; }
+  #board { font-size: 13px; line-height: 1.7; min-height: 0; opacity: .9; }
+  #board .me { color: #ffd24a; font-weight: 700; }
+  #board .rank { color: #16d3ff; font-weight: 700; font-size: 15px; }
+  button { pointer-events: auto; background: #101a33; color: #eaf6ff; border: 1px solid #16d3ff66;
+           border-radius: 10px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button:active { background: #16d3ff33; }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #101a33;
+           color: #eaf6ff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0;
+           transition: opacity .3s; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<div id="hud">
+  <div><div class="stat" id="score">0</div><div class="sub" id="combo"></div></div>
+  <div style="text-align:right"><div class="stat" id="timer">60</div><div class="sub" id="mode">DAILY</div></div>
+</div>
+<div id="overlay">
+  <h1>ORBIT RUSH</h1>
+  <div class="big" id="ovScore"></div>
+  <div class="hint" id="ovHint">You orbit automatically.<br>TAP to release. Latch the next ring.<br>Chain hops, thread the sparks ⚡</div>
+  <div class="sub" id="ovMeta"></div>
+  <div id="board"></div>
+  <div class="row">
+    <button id="btnMode">PRACTICE MODE</button>
+    <button id="btnName">✏️ NAME</button>
+    <button id="btnShare" style="display:none">SHARE 📋</button>
+  </div>
+  <div class="hint" style="font-size:13px;opacity:.6">tap anywhere / press SPACE to play</div>
+</div>
+<div id="toast"></div>
+
+<script>window.ORBIT_API = "https://nkxnkcsvtqbbczhnpokt.supabase.co/functions/v1/orbit-rush";</script>
+<script src="sim.js"></script>
+<script>
+"use strict";
+/* ============ Orbit Rush — client ============
+   All game rules live in sim.js (shared with the verification
+   server). This file only does: input capture → tap log, rendering,
+   juice, and talking to the leaderboard API. */
+
+const Sim = window.OrbitSim;
+const TICK = Sim.TICK, RUN_SECONDS = Sim.RUN_SECONDS, VIEW_W = Sim.VIEW_W;
+const ORB_R = Sim.ORB_R, SPIKE_R = Sim.SPIKE_R;
+
+/* ---------- identity (anonymous, local) ---------- */
+let pid = localStorage.getItem("or_pid");
+if (!pid) {
+  pid = [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, "0")).join("");
+  try { localStorage.setItem("or_pid", pid); } catch {}
+}
+let playerName = localStorage.getItem("or_name") || "guest" + pid.slice(0, 4);
+/* API base: injected by the hosting wrapper (window.ORBIT_API), else same
+   origin when served over http(s); playing from file:// still works offline */
+const API = (typeof window.ORBIT_API === "string") ? window.ORBIT_API
+          : /^https?:$/.test(location.protocol) ? "" : null;
+
+/* ---------- persistent stats ---------- */
+const store = {
+  get best()   { return +(localStorage.getItem("or_best_" + Sim.utcDay()) || 0); },
+  set best(v)  { try { localStorage.setItem("or_best_" + Sim.utcDay(), v); } catch {} },
+  bump() {                                   // daily streak: playing counts
+    const today = Sim.utcDay(), last = localStorage.getItem("or_last");
+    if (last === today) return;
+    const y = Sim.utcDay(Date.now() - 86400000);
+    const s = last === y ? +(localStorage.getItem("or_streak") || 0) + 1 : 1;
+    try { localStorage.setItem("or_streak", s); localStorage.setItem("or_last", today); } catch {}
+  },
+  get streak() { return +(localStorage.getItem("or_streak") || 0); }
+};
+
+/* ---------- canvas ---------- */
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let scale = 1, viewH = 700;
+function resize() {
+  const w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+  scale = w / VIEW_W; viewH = h / scale;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.width = w + "px"; cv.style.height = h + "px";
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+/* ---------- run state ---------- */
+let mode = "daily";                          // "daily" | "practice"
+let G = null;                                // sim state (sim.js owns the rules)
+let taps = [];                               // tick indices — THE run record
+let pendingTap = false;
+let shake = 0;
+let burst = [];                              // particles, render-only
+
+function newGame() {
+  const seed = mode === "daily" ? Sim.dailySeed(Sim.utcDay())
+                                : (Math.random() * 2 ** 32) >>> 0;
+  G = Sim.createState(seed);
+  taps = []; pendingTap = false; burst = []; shake = 0;
+}
+
+/* ---------- juice ---------- */
+function puff(x, y, col) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 120;
+    burst.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5, col });
+  }
+}
+function handleEvents() {
+  for (const ev of G.events) {
+    if (ev.t === "latch")      { shake = 4;  puff(G.x, G.y, "#16d3ff"); }
+    else if (ev.t === "spark") { puff(ev.x, ev.y, "#ffd24a"); }
+    else if (ev.t === "die")   { shake = 10; }
+  }
+}
+
+/* ---------- render ---------- */
+function draw() {
+  const camX = VIEW_W / 2, camYpix = viewH * 0.62;
+  const shx = (Math.random() - .5) * shake, shy = (Math.random() - .5) * shake;
+  shake *= 0.85;
+
+  const grd = ctx.createLinearGradient(0, 0, 0, viewH);
+  grd.addColorStop(0, "#0b0c22"); grd.addColorStop(1, "#06060f");
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, VIEW_W, viewH);
+
+  ctx.save();
+  ctx.translate(camX + shx, camYpix - G.camY + shy);
+
+  const A = G.track.anchors, top = G.camY - viewH, bot = G.camY + viewH;
+  for (const s of G.track.sparks) {
+    if (s.hit || s.y < top || s.y > bot) continue;
+    ctx.fillStyle = "#ffd24a"; ctx.shadowColor = "#ffd24a"; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(s.x, s.y, 4.5, 0, 7); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  for (const a of A) {
+    if (a.y < top || a.y > bot) continue;
+    ctx.strokeStyle = "#2b3f77"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, 7); ctx.stroke();
+    ctx.fillStyle = "#2b3f77";
+    ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, 7); ctx.fill();
+    if (a.spike >= 0) {
+      const sx = a.x + Math.cos(a.spike) * a.r, sy = a.y + Math.sin(a.spike) * a.r;
+      ctx.fillStyle = "#ff3d6e"; ctx.shadowColor = "#ff3d6e"; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const an = k * Math.PI / 4, rr = k % 2 ? SPIKE_R : SPIKE_R * 0.45;
+        ctx[k ? "lineTo" : "moveTo"](sx + Math.cos(an) * rr, sy + Math.sin(an) * rr);
+      }
+      ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+    }
+  }
+  for (let i = burst.length - 1; i >= 0; i--) {
+    const p = burst[i];
+    p.life -= 1 / 60; p.x += p.vx / 60; p.y += p.vy / 60;
+    if (p.life <= 0) { burst.splice(i, 1); continue; }
+    ctx.globalAlpha = p.life * 2; ctx.fillStyle = p.col;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+  // orb
+  ctx.fillStyle = G.alive ? "#16d3ff" : "#ff3d6e";
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 20;
+  ctx.beginPath(); ctx.arc(G.x, G.y, ORB_R, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+/* ---------- leaderboard ---------- */
+const $ = id => document.getElementById(id);
+function renderBoard(rank, topList, players) {
+  if (topList === null) { $("board").textContent = ""; return; }
+  let html = rank ? `<div class="rank">🌍 you are #${rank}${players ? " of " + players : ""} today</div>` : "";
+  topList.slice(0, 5).forEach((e, i) => {
+    const me = e.name === playerName ? ' class="me"' : "";
+    html += `<div${me}>${i + 1}. ${e.name} — ${e.score} ⚡</div>`;
+  });
+  if (!topList.length) html += `<div>no runs yet today — be first 🌍</div>`;
+  $("board").innerHTML = html;
+}
+async function fetchBoard() {
+  if (API === null) return;
+  try {
+    const r = await fetch(`${API}/api/orbit/leaderboard?pid=${pid}`);
+    const d = await r.json();
+    renderBoard(d.rank, d.top, d.players);
+  } catch {}
+}
+async function submitRun(runTaps, claimed) {
+  if (API === null) return;
+  try {
+    const r = await fetch(`${API}/api/orbit/run`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pid, name: playerName, day: Sim.utcDay(), taps: runTaps, claimed })
+    });
+    const d = await r.json();
+    if (d.ok) renderBoard(d.rank, d.top, d.players);
+  } catch {}
+}
+
+/* ---------- flow ---------- */
+let phase = "menu";                           // "menu" | "play" | "over"
+
+function startRun() {
+  newGame(); store.bump();
+  phase = "play";
+  $("overlay").classList.add("hidden");
+  $("mode").textContent = mode.toUpperCase();
+}
+function finishRun() {
+  phase = "over";
+  const s = G.score;
+  let recordTxt = "";
+  if (mode === "daily") {
+    if (s > store.best) { store.best = s; recordTxt = "🏆 NEW DAILY BEST"; }
+    $("ovMeta").textContent = `Daily #${Sim.dailyNumber()} · best today ${store.best} · streak 🔥${store.streak}`;
+    submitRun(taps, s);                       // server re-simulates & ranks
+  } else {
+    $("ovMeta").textContent = "practice run — no records";
+    renderBoard(null, null);
+  }
+  $("ovScore").textContent = `${s} ⚡ ${recordTxt}`;
+  $("ovHint").innerHTML = `hops ${G.hops} · sparks ${G.sparksHit} · max combo ×${G.combo}`;
+  $("btnShare").style.display = mode === "daily" ? "" : "none";
+  setTimeout(() => $("overlay").classList.remove("hidden"), 350);
+}
+function tap() {
+  if (phase === "play") pendingTap = true;    // applied at the next sim tick
+  else startRun();                            // menu & game-over: instant (re)start
+}
+addEventListener("pointerdown", e => { if (e.target.tagName !== "BUTTON") tap(); });
+addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); tap(); } });
+
+$("btnMode").addEventListener("click", () => {
+  mode = mode === "daily" ? "practice" : "daily";
+  $("btnMode").textContent = mode === "daily" ? "PRACTICE MODE" : "DAILY MODE";
+  $("mode").textContent = mode.toUpperCase();
+});
+$("btnName").addEventListener("click", () => {
+  const n = prompt("Player name (1-16 letters/digits/_/-):", playerName);
+  if (n === null) return;
+  const clean = n.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 16);
+  if (!clean) return showToast("invalid name");
+  playerName = clean;
+  try { localStorage.setItem("or_name", playerName); } catch {}
+  showToast("name set: " + playerName);
+});
+$("btnShare").addEventListener("click", () => {
+  const card = `🪐 Orbit Rush #${Sim.dailyNumber()}\n⚡ ${store.best} · 🔥 streak ${store.streak}\nSame track, whole world. Beat me.`;
+  (navigator.clipboard ? navigator.clipboard.writeText(card) : Promise.reject())
+    .then(() => showToast("copied — paste anywhere"))
+    .catch(() => showToast(card));
+});
+let toastT;
+function showToast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toastT); toastT = setTimeout(() => t.style.opacity = 0, 2200);
+}
+
+/* ---------- main loop: fixed-step sim, rAF render ---------- */
+let last = performance.now(), acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  acc += Math.min((now - last) / 1000, 0.1); last = now;
+  if (phase === "play") {
+    while (acc >= TICK) {
+      const t = pendingTap;
+      if (t) { taps.push(G.tick); pendingTap = false; }   // record THE input log
+      Sim.step(G, t);
+      handleEvents();
+      acc -= TICK;
+      if (G.done) { finishRun(); break; }
+    }
+  } else acc = 0;
+  if (G) {
+    draw();
+    $("score").textContent = G.score;
+    $("combo").textContent = G.combo > 1 ? "combo ×" + G.combo : "";
+    $("timer").textContent = Math.max(0, Math.ceil(RUN_SECONDS - G.tick * TICK));
+  }
+}
+newGame();                                    // pre-render the track behind the menu
+$("ovMeta").textContent = `Daily #${Sim.dailyNumber()} · best today ${store.best} · streak 🔥${store.streak}`;
+fetchBoard();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

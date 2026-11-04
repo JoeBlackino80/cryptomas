@@ -35,11 +35,15 @@ and asynchronous staked duels (both players play the same seed, best score wins)
 - **Genre:** One-touch skill arcade / daily challenge
 - **Platforms:** Web (instant play), iOS, Android, Telegram Mini App
 - **Run Duration:** 60 seconds
+- **Play online:** https://orbit-rush-joeblackino80s-projects.vercel.app
+  (static client on Vercel; verified runs + global daily leaderboard via
+  Supabase Edge Function + Postgres)
 - **Design doc:** [`ORBIT_RUSH_GDD.md`](ORBIT_RUSH_GDD.md)
-- **Playable prototype:** `npm install && npm run orbit` → http://localhost:4100
-  (server-verified runs + global daily leaderboard), or open
+- **Local dev:** `npm install && npm run orbit` → http://localhost:4100, or open
   [`PROTOTYPE/orbit-rush.html`](PROTOTYPE/orbit-rush.html) directly for offline play
 - **Tests:** `npm test` (determinism, run verification, leaderboard)
+- **Deploy bundles:** `node SUPABASE/build-client.mjs` → `DEPLOY/` (Vercel) and
+  `SUPABASE/functions/orbit-rush/` (Supabase)
 
 ---
 

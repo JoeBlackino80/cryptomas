@@ -12,7 +12,11 @@
  *   GET  /api/orbit/leaderboard    top runs for a day
  * ============================================================ */
 import "./sim.js";
-import { HTML } from "./client.ts";
+
+/* The game page itself is hosted on Vercel: Supabase's gateway rewrites
+ * text/html responses to text/plain on *.supabase.co (anti-phishing), so
+ * this function serves only the API and redirects / to the game. */
+const GAME_URL = "https://orbit-rush-joeblackino80s-projects.vercel.app/";
 
 const Sim = (globalThis as unknown as { OrbitSim: any }).OrbitSim;
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
@@ -68,9 +72,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     if (path === "/" || path === "") {
-      return new Response(HTML, {
-        headers: { "content-type": "text/html; charset=utf-8", ...CORS },
-      });
+      return new Response(null, { status: 302, headers: { location: GAME_URL, ...CORS } });
     }
 
     if (path === "/api/orbit/daily") {
