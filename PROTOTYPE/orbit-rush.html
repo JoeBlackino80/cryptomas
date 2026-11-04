@@ -72,8 +72,10 @@ if (!pid) {
   try { localStorage.setItem("or_pid", pid); } catch {}
 }
 let playerName = localStorage.getItem("or_name") || "guest" + pid.slice(0, 4);
-/* API available when served over http(s); playing from file:// still works offline */
-const API = /^https?:$/.test(location.protocol) ? "" : null;
+/* API base: injected by the hosting wrapper (window.ORBIT_API), else same
+   origin when served over http(s); playing from file:// still works offline */
+const API = (typeof window.ORBIT_API === "string") ? window.ORBIT_API
+          : /^https?:$/.test(location.protocol) ? "" : null;
 
 /* ---------- persistent stats ---------- */
 const store = {
